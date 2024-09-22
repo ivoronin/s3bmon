@@ -237,6 +237,7 @@ class Application(App):
 
         self.jobs = new_jobs
         self.content.loading = False
+        self.table.refresh()
 
     async def watch_jobs(self):
         """Update the table"""
