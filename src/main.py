@@ -11,8 +11,10 @@ from textual import work
 from textual.containers import VerticalScroll, Container
 from textual.app import App, ComposeResult
 from textual.screen import ModalScreen
-from textual.widgets import DataTable, Header, Pretty, Footer
+from textual.widgets import DataTable, Header, Pretty, Footer, Button, Static
 from textual.reactive import reactive
+
+import botocore.exceptions
 
 import aws
 from job import Job
@@ -32,6 +34,54 @@ STATUS_COLOR = {
     "Cancelled": "yellow",
     "Failed": "red",
 }
+
+
+class Alert(ModalScreen):
+    """Alert screen"""
+
+    DEFAULT_CSS = """
+    Alert {
+        align: center middle;
+    }
+
+    #alert {
+        width: 40%;
+        height: 30%;
+        padding: 0 1;
+        align: center middle;
+        border: thick $background 80%;
+        background: $surface;
+    }
+
+    #alert Static {
+        text-align: center;
+    }
+
+    #alert Button {
+        align-horizontal: center;
+        dock: bottom;
+    }
+    """
+
+    BINDINGS = [
+        ("q", "app.quit", "Quit"),
+    ]
+
+    def __init__(self, message):
+        super().__init__()
+        self.content = Container(
+            Static(message),
+            Button("Quit", variant="error"),
+            id="alert",
+        )
+
+    def compose(self) -> ComposeResult:
+        """Compose the screen"""
+        yield self.content
+
+    def on_button_pressed(self, _):
+        """Quit the app"""
+        self.app.exit()
 
 
 class JobDetails(ModalScreen):
@@ -62,9 +112,8 @@ class JobDetails(ModalScreen):
         ("q", "app.quit", "Quit"),
     ]
 
-    def __init__(self, account_id, job_id):
+    def __init__(self, job_id):
         super().__init__()
-        self.account_id = account_id
         self.job_id = job_id
         self.pretty = Pretty({})
         self.content = Container(
@@ -87,7 +136,11 @@ class JobDetails(ModalScreen):
     @work
     async def update_details(self):
         """Update the details"""
-        job = await aws.describe_job(self.account_id, self.job_id)
+        try:
+            account_id = await aws.get_account_id()
+            job = await aws.describe_job(account_id, self.job_id)
+        except botocore.exceptions.BotoCoreError as exc:
+            return await self.app.push_screen_wait(Alert(str(exc)))
         self.pretty.update(job)
         self.content.loading = False
 
@@ -114,7 +167,6 @@ class Application(App):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._account_id = None
         self.table = DataTable(zebra_stripes=True, cursor_type="row")
         self.content = Container(self.table, id="jobs")
         self.content.loading = True
@@ -151,12 +203,19 @@ class Application(App):
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Show job details"""
-        self.push_screen(JobDetails(self._account_id, event.row_key.value))
+        self.push_screen(JobDetails(event.row_key.value))
 
     @work(exclusive=True)
     async def update_jobs(self) -> list[tuple]:
         """Get the rows for the table"""
-        items = await aws.list_jobs(self._account_id)
+        try:
+            account_id = await aws.get_account_id()
+            items = await aws.list_jobs(account_id)
+        except botocore.exceptions.BotoCoreError as exc:
+            return await self.push_screen_wait(Alert(str(exc)))
+
+        self.sub_title = f"Account ID: {account_id}"
+
         new_jobs = {}
         for item in items:
             job = Job(item)
@@ -198,14 +257,14 @@ class Application(App):
 
     async def on_mount(self) -> None:
         """Mount the app"""
-        self._account_id = await aws.get_account_id()
-        self.sub_title = f"Account ID: {self._account_id}"
-
         self.update_jobs()
         self.set_interval(60, self.update_jobs)
 
+
 def main():
+    """main"""
     Application().run()
+
 
 if __name__ == "__main__":
     main()
