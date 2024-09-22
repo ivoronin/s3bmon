@@ -16,8 +16,8 @@ from textual.reactive import reactive
 
 import botocore.exceptions
 
-import aws
-from job import Job
+from s3bmon import aws
+from s3bmon.job import Job
 
 
 def humanize_num(num) -> str:
@@ -260,12 +260,3 @@ class Application(App):
         """Mount the app"""
         self.update_jobs()
         self.set_interval(60, self.update_jobs)
-
-
-def main():
-    """main"""
-    Application().run()
-
-
-if __name__ == "__main__":
-    main()
