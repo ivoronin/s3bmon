@@ -99,10 +99,10 @@ class Job:
     @property
     def eta(self):
         """Calculate the estimated time of completion"""
-        if not self.is_active or self.total_tasks == 0:
+        if not self.is_active or self.completed_ratio == 0:
             return None
 
-        return self.creation_time + self.elapsed_time / (self.completed_ratio)
+        return self.creation_time + self.elapsed_time / self.completed_ratio
 
     @property
     def tasks_per_hour(self):
