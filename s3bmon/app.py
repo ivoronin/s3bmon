@@ -11,7 +11,7 @@ from textual import work
 from textual.containers import VerticalScroll, Container
 from textual.app import App, ComposeResult
 from textual.screen import ModalScreen
-from textual.widgets import DataTable, Header, Pretty, Footer, Button, Static
+from textual.widgets import DataTable, Header, Pretty, Footer, Button, Static, Input
 from textual.reactive import reactive
 
 import botocore.exceptions
@@ -82,6 +82,45 @@ class Alert(ModalScreen):
     def on_button_pressed(self, _):
         """Quit the app"""
         self.app.exit()
+
+
+class Filter(ModalScreen):
+    """Alert screen"""
+
+    DEFAULT_CSS = """
+    Filter {
+        align: center middle;
+    }
+
+    #filter {
+        width: 40%;
+        height: 5;
+        padding: 0 1;
+        align: center middle;
+        border: thick $background 80%;
+        background: $surface;
+    }
+
+    #filter Input {
+        width: 100%;
+    }
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.content = Container(
+            Input(self.app.filter, placeholder="Enter a description substring"),
+            id="filter",
+        )
+
+    def compose(self) -> ComposeResult:
+        """Compose the screen"""
+        yield self.content
+
+    def on_input_submitted(self, event: Input.Submitted):
+        """Set the filter and dismiss"""
+        self.app.filter = event.value  # pylint: disable=attribute-defined-outside-init
+        self.dismiss()
 
 
 class JobDetails(ModalScreen):
@@ -159,11 +198,13 @@ class Application(App):
     BINDINGS = [
         ("a", "toggle_active", "Toggle active only jobs"),
         ("r", "refresh", "Force refresh"),
+        ("/", "push_screen('filter')", "Filter"),
         ("q", "quit", "Quit"),
     ]
 
     active_only = reactive(False)
     jobs = reactive({})
+    filter = reactive("")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -186,6 +227,15 @@ class Application(App):
         yield Header()
         yield self.content
         yield Footer(show_command_palette=False)
+
+    async def watch_filter(self, _: str) -> None:
+        """Watch for changes in filter"""
+        self.content.loading = True
+        if self.filter:
+            self.sub_title = f"*{self.filter}*"
+        else:
+            self.sub_title = ""
+        self.update_jobs()
 
     def watch_active_only(self, _: bool) -> None:
         """Watch for changes in active_only"""
@@ -214,12 +264,12 @@ class Application(App):
         except botocore.exceptions.BotoCoreError as exc:
             return await self.push_screen_wait(Alert(str(exc)))
 
-        self.sub_title = f"Account ID: {account_id}"
-
         new_jobs = {}
         for item in items:
             job = Job(item)
             if self.active_only and not job.is_active:
+                continue
+            if self.filter and self.filter.lower() not in job.description.lower():
                 continue
             eta = job.eta
             new_jobs[job.id] = (
@@ -258,5 +308,6 @@ class Application(App):
 
     async def on_mount(self) -> None:
         """Mount the app"""
+        self.install_screen(Filter, name="filter")
         self.update_jobs()
         self.set_interval(60, self.update_jobs)
