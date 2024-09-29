@@ -203,7 +203,7 @@ class Application(App):
     ]
 
     active_only = reactive(False)
-    jobs = reactive({})
+    jobs = reactive([])
     filter = reactive("")
 
     def __init__(self, *args, **kwargs):
@@ -230,22 +230,16 @@ class Application(App):
 
     async def watch_filter(self, _: str) -> None:
         """Watch for changes in filter"""
-        self.content.loading = True
-        if self.filter:
-            self.sub_title = f"*{self.filter}*"
-        else:
-            self.sub_title = ""
-        self.update_jobs()
+        return await self.watch_jobs()
 
-    def watch_active_only(self, _: bool) -> None:
+    async def watch_active_only(self, _: bool) -> None:
         """Watch for changes in active_only"""
-        self.content.loading = True
-        self.update_jobs()
+        return await self.watch_jobs()
 
     def action_refresh(self):
         """Refresh the table"""
         self.content.loading = True
-        self.update_jobs()
+        self.fetch_jobs()
 
     def action_toggle_active(self):
         """Toggle active only jobs"""
@@ -256,23 +250,29 @@ class Application(App):
         self.push_screen(JobDetails(event.row_key.value))
 
     @work(exclusive=True)
-    async def update_jobs(self) -> list[tuple]:
+    async def fetch_jobs(self) -> list[tuple]:
         """Get the rows for the table"""
         try:
             account_id = await aws.get_account_id()
-            items = await aws.list_jobs(account_id)
+            self.jobs = [Job(i) for i in await aws.list_jobs(account_id)]
         except botocore.exceptions.BotoCoreError as exc:
             return await self.push_screen_wait(Alert(str(exc)))
+        await self.watch_jobs()
+        self.content.loading = False
 
-        new_jobs = {}
-        for item in items:
-            job = Job(item)
+    async def watch_jobs(self):
+        """Watch for changes in jobs"""
+        self.sub_title = f"*{self.filter}* " if self.filter else ""
+        self.sub_title += "Active only" if self.active_only else ""
+
+        job_rows = {}
+        for job in self.jobs:
             if self.active_only and not job.is_active:
                 continue
             if self.filter and self.filter.lower() not in job.description.lower():
                 continue
             eta = job.eta
-            new_jobs[job.id] = (
+            job_rows[job.id] = (
                 job.id[:8],
                 job.description or "-",
                 Text(job.status, style=STATUS_COLOR.get(job.status, "white")),
@@ -285,13 +285,7 @@ class Application(App):
                 eta and eta.strftime("%d-%m-%y %H:%M") or "-",
             )
 
-        self.jobs = new_jobs
-        self.content.loading = False
-        self.table.refresh()
-
-    async def watch_jobs(self):
-        """Update the table"""
-        for key, values in self.jobs.items():
+        for key, values in job_rows.items():
             if key not in self.table.rows:
                 self.table.add_row(*values, key=key)
             else:
@@ -301,7 +295,7 @@ class Application(App):
 
         row_keys = list(self.table.rows.keys())
         for key in row_keys:
-            if key not in self.jobs:
+            if key not in job_rows:
                 self.table.remove_row(key)
 
         self.table.sort("creation_time", reverse=True)
@@ -309,5 +303,5 @@ class Application(App):
     async def on_mount(self) -> None:
         """Mount the app"""
         self.install_screen(Filter, name="filter")
-        self.update_jobs()
-        self.set_interval(60, self.update_jobs)
+        self.fetch_jobs()
+        self.set_interval(60, self.fetch_jobs)
