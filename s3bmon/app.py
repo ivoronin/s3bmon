@@ -276,13 +276,13 @@ class Application(App):
                 job.id[:8],
                 job.description or "-",
                 Text(job.status, style=STATUS_COLOR.get(job.status, "white")),
-                job.creation_time.strftime("%d-%m-%y %H:%M"),
+                job.creation_time.strftime("%y-%m-%d %H:%M"),
                 Text(humanize_num(job.total_tasks), justify="right"),
                 Text(f"{job.success_ratio*100:.2f}", justify="right"),
                 Text(f"{job.failure_ratio*100:.2f}", justify="right"),
                 Text(humanize_num(job.tasks_per_hour), justify="right"),
                 Text(f"{round(job.elapsed_hours, 1)}H", justify="right"),
-                eta and eta.strftime("%d-%m-%y %H:%M") or "-",
+                eta and eta.strftime("%y-%m-%d %H:%M") or "-",
             )
 
         for key, values in job_rows.items():
